@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment / secrets — never commit real values
+.env
+.env.*
+!.env.example
+
+# Local credential store (dev-mode fallback token file, if ever used locally)
+*.secret.json
+credentials/
+.secrets/
+.local/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test/coverage output
+coverage/

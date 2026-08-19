@@ -1,0 +1,13 @@
+# Controls what gets uploaded to Cloud Build for `gcloud run deploy --source .`.
+# Keeps the upload small and guarantees local secrets never leave this machine,
+# even if a stray .env file exists locally.
+.git/
+.gitignore
+.gcloudignore
+node_modules/
+dist/
+.env
+.env.*
+.local/
+*.md
+scripts/
