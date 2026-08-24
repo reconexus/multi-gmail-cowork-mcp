@@ -97,7 +97,7 @@ Every route is instead authenticated at the application layer, individually:
 | `GET /admin/*` | HTTP Basic Auth (`src/adminAuth.ts`) |
 | `POST /admin/accounts/start`, `POST /admin/accounts/:alias/disconnect` | HTTP Basic Auth + same-origin check (`requireSameOrigin`, see "CSRF protection" below) |
 | `GET /oauth/google/callback` | Encrypted, single-purpose, 10-minute state token (`src/oauthState.ts`) |
-| `GET /healthz` | Nothing — returns only `{"status":"ok"}` |
+| `GET /status` | Nothing — returns only `{"status":"ok"}` |
 
 ## Gmail account-linking flow: CSRF, PKCE, and no server-side session
 

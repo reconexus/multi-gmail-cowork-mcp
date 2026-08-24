@@ -13,8 +13,11 @@ const config = loadConfig();
 const app = express();
 app.disable('x-powered-by');
 
-// No auth: used by Cloud Run / uptime checks. Returns no sensitive information.
-app.get('/healthz', (_req, res) => {
+// No auth: used by uptime checks. Returns no sensitive information.
+// Deliberately NOT "/healthz" -- Cloud Run's Knative queue-proxy sidecar reserves
+// that exact literal path for its own internal probing and intercepts it before
+// it ever reaches this container, regardless of what the app defines there.
+app.get('/status', (_req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
