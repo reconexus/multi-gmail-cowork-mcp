@@ -4,7 +4,7 @@ import { safeEqual } from './safeCompare.js';
 
 /**
  * Protects the admin (account management) routes with HTTP Basic Auth against a
- * dedicated admin password — deliberately separate from the MCP bearer token, so a
+ * dedicated admin password — deliberately separate from the MCP OAuth credentials, so a
  * leaked Claude connector header can search email but cannot add or remove
  * connected accounts.
  */

@@ -107,15 +107,15 @@ existing_public_base_url() {
   fi
   gcloud run services describe "$service_name" \
     --project "$project_id" --region "$region_name" \
-    --format='json(spec.template.spec.containers[0].env)' 2>/dev/null \
-    | jq -r '.[] | select(.name == "PUBLIC_BASE_URL") | .value' 2>/dev/null \
+    --format=json 2>/dev/null \
+    | jq -r '.spec.template.spec.containers[0].env[]? | select(.name == "PUBLIC_BASE_URL") | .value // empty' 2>/dev/null \
     | head -n 1
 }
 
 deploy_once() {
   local base_url="$1"
-  local secret_refs="MCP_BEARER_TOKEN=mcp-bearer-token:latest,ADMIN_PASSWORD=admin-password:latest,OAUTH_STATE_SECRET=oauth-state-secret:latest,GOOGLE_CLIENT_ID=google-client-id:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest"
-  local env_vars="PUBLIC_BASE_URL=$base_url,GCP_PROJECT_ID=$project_id,ACCOUNTS_SECRET_NAME=$accounts_secret_name,TOKEN_STORE=secret-manager,ENABLE_WRITE_TOOLS=false,LOG_LEVEL=info,NODE_ENV=production"
+  local secret_refs="ADMIN_PASSWORD=admin-password:latest,OAUTH_STATE_SECRET=oauth-state-secret:latest,GOOGLE_CLIENT_ID=google-client-id:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest"
+  local env_vars="PUBLIC_BASE_URL=$base_url,GCP_PROJECT_ID=$project_id,ACCOUNTS_SECRET_NAME=$accounts_secret_name,MCP_OAUTH_STATE_SECRET_NAME=mcp-oauth-state,TOKEN_STORE=secret-manager,ENABLE_WRITE_TOOLS=false,LOG_LEVEL=info,NODE_ENV=production"
   gcloud run deploy "$service_name" \
     --source . \
     --project "$project_id" \
@@ -233,7 +233,6 @@ else
 fi
 
 printf '\nCreating/preserving Secret Manager values...\n'
-ensure_secret_value mcp-bearer-token "$(openssl rand -hex 32)"
 ensure_secret_value admin-password "$(openssl rand -hex 24)"
 ensure_secret_value oauth-state-secret "$(openssl rand -hex 32)"
 ensure_secret google-client-id
@@ -243,10 +242,16 @@ if [[ -z "$(read_secret google-client-id)" ]]; then write_secret google-client-i
 if [[ -z "$(read_secret google-client-secret)" ]]; then write_secret google-client-secret REPLACE_ME; fi
 if [[ -z "$(read_secret "$accounts_secret_name")" ]]; then write_secret "$accounts_secret_name" '[]'; fi
 
-for secret_name in mcp-bearer-token admin-password oauth-state-secret google-client-id google-client-secret "$accounts_secret_name"; do
+ensure_secret mcp-oauth-state
+if [[ -z "$(read_secret mcp-oauth-state)" ]]; then write_secret mcp-oauth-state '{"clients":[],"authorizationCodes":{},"refreshTokens":{}}'; fi
+
+for secret_name in admin-password oauth-state-secret google-client-id google-client-secret "$accounts_secret_name" mcp-oauth-state; do
   grant_runtime_access "$secret_name"
 done
 gcloud secrets add-iam-policy-binding "$accounts_secret_name" \
+  --project "$project_id" --member "serviceAccount:$runtime_sa_email" \
+  --role roles/secretmanager.secretVersionAdder --quiet >/dev/null
+gcloud secrets add-iam-policy-binding mcp-oauth-state \
   --project "$project_id" --member "serviceAccount:$runtime_sa_email" \
   --role roles/secretmanager.secretVersionAdder --quiet >/dev/null
 pass "Least-privilege Secret Manager IAM is configured"
@@ -254,6 +259,8 @@ pass "Least-privilege Secret Manager IAM is configured"
 was_existing="false"
 if service_exists; then was_existing="true"; fi
 base_url="$(existing_public_base_url || true)"
+preserve_public_base_url="false"
+if [[ -n "$base_url" ]]; then preserve_public_base_url="true"; fi
 if [[ -z "$base_url" && "$was_existing" == "true" ]]; then
   base_url="$(gcloud run services describe "$service_name" --project "$project_id" --region "$region_name" --format='value(status.url)')"
 fi
@@ -261,10 +268,17 @@ if [[ -z "$base_url" ]]; then base_url='https://not-yet-known.invalid'; fi
 
 printf '\nDeploying Cloud Run service...\n'
 deploy_once "$base_url"
-service_url="$(gcloud run services describe "$service_name" --project "$project_id" --region "$region_name" --format='value(status.url)')"
-if [[ "$base_url" != "$service_url" ]]; then
+status_service_url="$(gcloud run services describe "$service_name" --project "$project_id" --region "$region_name" --format='value(status.url)')"
+service_url="$status_service_url"
+if [[ "$preserve_public_base_url" != "true" && "$base_url" != "$status_service_url" ]]; then
   printf '  Cloud Run URL is now known; applying it to PUBLIC_BASE_URL.\n'
-  deploy_once "$service_url"
+  deploy_once "$status_service_url"
+  base_url="$status_service_url"
+  service_url="$status_service_url"
+elif [[ "$preserve_public_base_url" == "true" ]]; then
+  # Keep the deployment's existing public base URL (which may be a stable
+  # run.app hostname different from Cloud Run's status.url alias).
+  service_url="$base_url"
 fi
 pass "Cloud Run deployment is ready"
 
@@ -287,7 +301,7 @@ if [[ -z "$client_id_value" || -z "$client_secret_value" || "$client_id_value" =
     write_secret google-client-id "$client_id_input"
     write_secret google-client-secret "$client_secret_input"
     unset client_id_input client_secret_input client_id_value client_secret_value
-    deploy_once "$service_url"
+    deploy_once "$base_url"
     oauth_client_needed="false"
     pass "OAuth client stored and deployment updated"
   else
@@ -303,7 +317,7 @@ printf '\nRunning public endpoint checks...\n'
 if check_http /status 200; then pass '/status returns 200'; else printf 'FAIL  /status did not return 200\n'; fi
 if check_http /admin 401; then pass '/admin is protected (401 without credentials)'; else printf 'FAIL  /admin protection check failed\n'; fi
 if [[ "$oauth_client_needed" == "false" ]]; then
-  if check_mcp_auth; then pass '/mcp is protected (401 without bearer token)'; else printf 'FAIL  /mcp protection check failed\n'; fi
+  if check_mcp_auth; then pass '/mcp is protected (401 without OAuth access token)'; else printf 'FAIL  /mcp protection check failed\n'; fi
 fi
 
 printf '\nFinal setup summary\n'
@@ -315,7 +329,6 @@ if [[ "$oauth_client_needed" == "true" ]]; then
   printf 'complete the OAuth client step above, then rerun ./scripts/bootstrap.sh.\n'
 else
   printf 'open the Admin URL, add Gmail accounts, then add one Claude custom connector.\n'
-  printf 'If Claude requires a bearer header, retrieve it only when needed (never paste it into chat):\n'
-  printf '  gcloud secrets versions access latest --secret=mcp-bearer-token --project=%s\n' "$project_id"
+  printf 'Claude will discover OAuth when you click Connect; authorize it with the deployment admin credential.\n'
 fi
 printf 'Secret values and tokens were not printed.\n'

@@ -114,7 +114,7 @@ if ($LASTEXITCODE -ne 0) {
 # ---------------------------------------------------------------------------
 Step "Creating Secret Manager secrets"
 
-$StaticSecrets = @("mcp-bearer-token", "admin-password", "oauth-state-secret")
+$StaticSecrets = @("admin-password", "oauth-state-secret")
 foreach ($name in $StaticSecrets) {
   $isNew = -not (Test-SecretExists $name)
   New-SecretContainer $name
@@ -142,10 +142,17 @@ if ($isNewAccounts) {
   Write-Host "Created empty account store (gmail-mcp-accounts)."
 }
 
+$isNewMcpOAuthState = -not (Test-SecretExists "mcp-oauth-state")
+New-SecretContainer "mcp-oauth-state"
+if ($isNewMcpOAuthState -or [string]::IsNullOrWhiteSpace((Get-SecretValue "mcp-oauth-state"))) {
+  Set-SecretValue "mcp-oauth-state" '{"clients":[],"authorizationCodes":{},"refreshTokens":{}}'
+  Write-Host "Created empty MCP OAuth state store."
+}
+
 # ---------------------------------------------------------------------------
 Step "Granting least-privilege IAM on the secrets"
 
-$AllSecrets = @("mcp-bearer-token", "admin-password", "oauth-state-secret", "google-client-id", "google-client-secret", "gmail-mcp-accounts")
+$AllSecrets = @("admin-password", "oauth-state-secret", "google-client-id", "google-client-secret", "gmail-mcp-accounts", "mcp-oauth-state")
 foreach ($name in $AllSecrets) {
   gcloud secrets add-iam-policy-binding $name `
     --project $ProjectId `
@@ -154,6 +161,10 @@ foreach ($name in $AllSecrets) {
 }
 # Only the account store is written to at runtime (adding accounts from the admin page).
 gcloud secrets add-iam-policy-binding "gmail-mcp-accounts" `
+  --project $ProjectId `
+  --member "serviceAccount:$SaEmail" `
+  --role "roles/secretmanager.secretVersionAdder" | Out-Null
+gcloud secrets add-iam-policy-binding "mcp-oauth-state" `
   --project $ProjectId `
   --member "serviceAccount:$SaEmail" `
   --role "roles/secretmanager.secretVersionAdder" | Out-Null
@@ -168,7 +179,10 @@ try {
   Pop-Location
 }
 
-$ServiceUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId --format "value(status.url)").Trim()
+$StatusServiceUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId --format "value(status.url)").Trim()
+$ConfiguredPublicBaseUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId `
+  --format "value(spec.template.spec.containers[0].env.filter(name=PUBLIC_BASE_URL).value)" 2>$null).Trim()
+$ServiceUrl = if ($ConfiguredPublicBaseUrl) { $ConfiguredPublicBaseUrl } else { $StatusServiceUrl }
 
 # ---------------------------------------------------------------------------
 $ClientIdValue = Get-SecretValue "google-client-id"
@@ -244,8 +258,8 @@ if ($NeedsOAuthClient) {
 } else {
   Write-Host "  Open the Admin URL, authenticate, and add Gmail accounts."
   Write-Host "  Then add one Claude custom connector using the MCP URL."
-  Write-Host "  If Claude asks for a bearer header, retrieve it only when needed with:"
-  Write-Host "    gcloud secrets versions access latest --secret=mcp-bearer-token --project $ProjectId"
+  Write-Host "  Add the MCP URL to Claude as a custom remote connector and click Connect."
+  Write-Host "  Claude will discover OAuth, then show the deployment's admin authorization page."
 }
 Write-Host ""
 Write-Host "Secrets were not printed. Keep them in Secret Manager; rotate by adding a new version and redeploying." -ForegroundColor DarkGray

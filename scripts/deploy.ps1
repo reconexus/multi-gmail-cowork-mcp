@@ -46,7 +46,6 @@ $ServiceAccountEmail = "$ServiceName-run@$ProjectId.iam.gserviceaccount.com"
 
 # These secrets must already exist  -  created by scripts/setup.ps1.
 $SecretRefs = @(
-  "MCP_BEARER_TOKEN=mcp-bearer-token:latest",
   "ADMIN_PASSWORD=admin-password:latest",
   "OAUTH_STATE_SECRET=oauth-state-secret:latest",
   "GOOGLE_CLIENT_ID=google-client-id:latest",
@@ -58,6 +57,7 @@ function Build-EnvArgs([string]$PublicBaseUrl) {
     "PUBLIC_BASE_URL=$PublicBaseUrl",
     "GCP_PROJECT_ID=$ProjectId",
     "ACCOUNTS_SECRET_NAME=gmail-mcp-accounts",
+    "MCP_OAUTH_STATE_SECRET_NAME=mcp-oauth-state",
     "TOKEN_STORE=secret-manager",
     "ENABLE_WRITE_TOOLS=false",
     "LOG_LEVEL=info",
@@ -82,7 +82,7 @@ function Deploy([string]$PublicBaseUrl) {
 # NOTE on --allow-unauthenticated: Claude's servers are not a Google Cloud
 # principal and cannot present a Cloud Run identity token, so Cloud Run IAM
 # cannot gate this service. Authentication is enforced by the application
-# itself instead  -  see mcpAuth.ts (bearer token on /mcp) and adminAuth.ts
+# itself instead  -  see mcpAuth.ts (OAuth access token on /mcp) and adminAuth.ts
 # (Basic Auth on /admin). This is documented in SECURITY.md.
 
 $existingUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId `
@@ -112,11 +112,13 @@ if (-not $preserveExistingPublicBaseUrl -and $serviceUrl -ne $firstPassUrl) {
   Deploy $serviceUrl
 }
 
+$displayUrl = if ($preserveExistingPublicBaseUrl) { $existingPublicBaseUrl.Trim() } else { $serviceUrl }
+
 Write-Host ""
 Write-Host "Deployed." -ForegroundColor Green
-Write-Host "  MCP endpoint (for Claude):        $serviceUrl/mcp"
-Write-Host "  Admin page (connect accounts):    $serviceUrl/admin"
-Write-Host "  Google OAuth redirect URI needed: $serviceUrl/oauth/google/callback"
+Write-Host "  MCP endpoint (for Claude):        $displayUrl/mcp"
+Write-Host "  Admin page (connect accounts):    $displayUrl/admin"
+Write-Host "  Google OAuth redirect URI needed: $displayUrl/oauth/google/callback"
 Write-Host ""
 Write-Host "If you haven't created the Google OAuth client yet, see README.md  -  the redirect URI" -ForegroundColor Yellow
 Write-Host "above must match it exactly." -ForegroundColor Yellow

@@ -65,8 +65,9 @@ limitations. This README does not repeat that reasoning.
 - **Transport:** Streamable HTTP (the current MCP-recommended remote transport), stateless
   — every request is handled independently, so it scales cleanly on Cloud Run with no
   session affinity required.
-- **Claude <-> server auth:** a single high-entropy bearer token via Anthropic's
-  custom-connector request-header feature.
+- **Claude <-> server auth:** MCP OAuth 2.1 authorization-code flow with PKCE/S256,
+  Dynamic Client Registration, short-lived access tokens, rotating refresh tokens, and
+  deployment-local authorization state in Secret Manager.
 - **Server <-> Google auth:** standard OAuth 2.0 with PKCE, one grant per connected Gmail
   account, `gmail.readonly` scope.
 - **Account storage:** one Google Secret Manager secret holding a small JSON array
@@ -99,7 +100,7 @@ to rerun: existing secrets, account records, OAuth credentials, and Cloud Run se
 preserved.
 
 The script never prints a password, OAuth client secret, refresh token, account-store JSON, or
-MCP bearer token. Secret values are written as exact bytes (no trailing-newline credential bug).
+MCP OAuth token. Secret values are written as exact bytes (no trailing-newline credential bug).
 Use `./scripts/bootstrap.sh --check` for a read-only Cloud Shell prerequisite check.
 
 ### The one unavoidable Google browser step
@@ -120,15 +121,9 @@ If Google shows an unverified-app warning, that is expected for a personal deplo
 the consent screen to **In production** if you want refresh tokens to remain valid beyond the
 Testing-mode seven-day limit; verification is not required for a personal/small deployment.
 
-At the end, bootstrap prints the Admin URL, exact OAuth callback URL, MCP URL, and the next human
-action. Keep the bearer token in Secret Manager; retrieve it only when Claude explicitly requires
-manual header entry:
-
-```bash
-gcloud secrets versions access latest --secret=mcp-bearer-token --project=YOUR_PROJECT_ID
-```
-
-Do not paste that value into chat, a URL, shell history, or a public issue.
+At the end, bootstrap prints the Admin URL, exact Google OAuth callback URL, MCP URL, and the
+next human action. Claude authenticates to the MCP endpoint through its supported OAuth flow;
+there is no static connector header to copy or put in a URL.
 
 ## Connect Gmail accounts
 
@@ -144,18 +139,22 @@ Do not paste that value into chat, a URL, shell history, or a public issue.
 
 ## Connect Claude Cowork
 
-In Claude, open **Customize -> Connectors -> Add custom connector** and create exactly one
-connector named **Multi Gmail** with the printed MCP URL (`.../mcp`). If the Claude client
-offers request headers, add:
+In Claude, open **Customize -> Connectors -> Add custom connector** and enter exactly:
 
-- Header name: `Authorization`
-- Header value: `Bearer <the value retrieved from Secret Manager>`
+1. **Connector name:** `Multi Gmail`
+2. **Remote MCP URL:** the printed URL ending in `/mcp`
+3. **OAuth Client ID:** leave blank (the server supports Dynamic Client Registration)
+4. **OAuth Client Secret:** leave blank
 
-Some Claude web builds expose OAuth-only custom connectors and do not show a request-header
-field. In that client, use a Cowork/Claude client that supports static MCP request headers or
-follow its secure manual-secret prompt; never change the server to accept a token in the URL.
-Ask Claude to call `list_accounts`, then run an alias-specific search for each account and
-`search_all_accounts` to verify attribution.
+Click **Add**, then **Connect**. Claude discovers the MCP authorization metadata, registers
+itself, and opens the deployment's **Authorize MCP access** page. Sign in there with username
+`admin` and the admin password stored in your own `admin-password` Secret Manager secret, then
+approve. Claude redirects through its callback at
+`https://claude.ai/api/mcp/auth_callback`, stores the OAuth tokens, and reconnects. Do not
+enter the Gmail OAuth client ID or secret in Claude — those belong only to Google's Gmail setup.
+
+After the connector is connected, ask Claude to call `list_accounts`, then run an
+alias-specific search for each account and `search_all_accounts` to verify attribution.
 
 ## Local development (optional)
 
@@ -190,7 +189,7 @@ account storage, auth, or the multi-account model — but no write capability ex
 - **Tear down the deployment:**
   ```powershell
   gcloud run services delete multi-gmail-mcp --region us-central1
-  gcloud secrets delete mcp-bearer-token admin-password oauth-state-secret google-client-id google-client-secret gmail-mcp-accounts
+  gcloud secrets delete mcp-bearer-token mcp-oauth-state admin-password oauth-state-secret google-client-id google-client-secret gmail-mcp-accounts
   gcloud iam service-accounts delete multi-gmail-mcp-run@YOUR_PROJECT_ID.iam.gserviceaccount.com
   ```
 - **Delete the OAuth client:** Cloud Console -> APIs & Services -> Credentials -> delete
@@ -205,10 +204,10 @@ account storage, auth, or the multi-account model — but no write capability ex
 - **Refresh tokens keep dying after ~7 days:** your OAuth consent screen is still in
   "Testing" publishing status. Publish it to "In production" (see step 3) — it can stay
   unverified, that's fine for personal use.
-- **Claude can't reach the connector / connection fails silently:** confirm the service
-  URL resolves over plain HTTPS with no redirect to a different host, and that you copied
-  the bearer token header exactly (`Authorization: Bearer <token>`, including the word
-  "Bearer").
+- **Claude can't reach the connector / connection fails silently:** confirm the service URL
+  resolves over plain HTTPS with no redirect to a different host, then open the MCP URL ending
+  in `/mcp` in Claude and click **Connect** again. The server must return OAuth metadata and a
+  401 challenge when called without an access token; no static request header is required.
 - **`gcloud run deploy` fails on APIs not enabled:** re-run `scripts/setup.ps1`, or run
   `gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com gmail.googleapis.com iam.googleapis.com`.
 - **Local dev can't reach Google over HTTPS (certificate errors):** this is almost always a

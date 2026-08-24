@@ -1,17 +1,21 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import express from 'express';
+import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createAdminRouter } from './adminRouter.js';
 import { loadConfig } from './config.js';
 import { log } from './logger.js';
-import { mcpBearerAuth } from './mcpAuth.js';
+import { mcpOAuthAuth } from './mcpAuth.js';
+import { createMcpOAuthProvider, MCP_SCOPE } from './mcpOAuth.js';
 import { createMcpServer } from './mcpServer.js';
 import { createOAuthCallbackRouter } from './oauthCallback.js';
+import { escapeHtml } from './html.js';
 
 const config = loadConfig();
 const app = express();
 app.disable('x-powered-by');
+const mcpOAuthProvider = createMcpOAuthProvider();
 
 // No auth: used by uptime checks. Returns no sensitive information.
 // Deliberately NOT "/healthz" -- Cloud Run's Knative queue-proxy sidecar reserves
@@ -43,10 +47,48 @@ app.use('/admin', createAdminRouter());
 // Google's redirect target after a user approves (or denies) Gmail access for one alias.
 app.use('/oauth', createOAuthCallbackRouter());
 
-// The MCP endpoint Claude talks to. Stateless Streamable HTTP: a fresh MCP server
-// and transport per request, so any Cloud Run instance can serve any request with
-// no session affinity required. Gated by mcpBearerAuth (see mcpAuth.ts).
-app.post('/mcp', express.json(), mcpBearerAuth(), async (req, res) => {
+// OAuth authorization is intentionally separate from the Gmail OAuth flow. The
+// deployment's admin credential is the local resource-owner consent step for the
+// Claude connector; no Gmail account records are read or changed here.
+app.post('/authorize/consent', express.urlencoded({ extended: false }), async (req, res) => {
+  try {
+    const result = await mcpOAuthProvider.completeAuthorization(
+      String(req.body.request ?? ''),
+      String(req.body.username ?? ''),
+      String(req.body.password ?? ''),
+      String(req.body.decision ?? 'deny'),
+    );
+    if (result.redirectUrl) {
+      res.redirect(result.redirectUrl);
+      return;
+    }
+    res.status(400).type('html').send(`<p>${escapeHtml(result.error ?? 'Authorization failed.')}</p>`);
+  } catch (err) {
+    log.error('mcp_authorization_failed', { message: (err as Error).message });
+    res.status(500).type('html').send('<p>Authorization could not be completed.</p>');
+  }
+});
+
+// MCP authorization-server metadata, DCR, PKCE authorization, and token
+// endpoints. The official SDK router also serves RFC 9728 protected-resource
+// metadata at /.well-known/oauth-protected-resource/mcp.
+app.use(
+  mcpAuthRouter({
+    provider: mcpOAuthProvider,
+    issuerUrl: new URL(config.publicBaseUrl),
+    baseUrl: new URL(config.publicBaseUrl),
+    resourceServerUrl: new URL(`${config.publicBaseUrl}/mcp`),
+    scopesSupported: [MCP_SCOPE],
+    resourceName: 'Multi-Gmail Cowork MCP',
+    serviceDocumentationUrl: new URL(config.publicBaseUrl),
+  }),
+);
+
+// The MCP endpoint Claude talks to. Stateless Streamable HTTP: a fresh MCP
+// server and transport per request, so any Cloud Run instance can serve any
+// request with no session affinity required. Gated by OAuth access tokens.
+const requireMcpAuth = mcpOAuthAuth(mcpOAuthProvider);
+app.post('/mcp', requireMcpAuth, express.json(), async (req, res) => {
   try {
     const mcpServer = createMcpServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -64,12 +106,12 @@ app.post('/mcp', express.json(), mcpBearerAuth(), async (req, res) => {
   }
 });
 
-app.get('/mcp', mcpBearerAuth(), (_req, res) => {
+app.get('/mcp', requireMcpAuth, (_req, res) => {
   res
     .status(405)
     .json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed in stateless mode.' }, id: null });
 });
-app.delete('/mcp', mcpBearerAuth(), (_req, res) => {
+app.delete('/mcp', requireMcpAuth, (_req, res) => {
   res
     .status(405)
     .json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed in stateless mode.' }, id: null });

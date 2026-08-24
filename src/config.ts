@@ -19,10 +19,10 @@ export interface Config {
   gcpProjectId: string;
   googleClientId: string;
   googleClientSecret: string;
-  mcpBearerToken: string;
   adminUsername: string;
   adminPassword: string;
   oauthStateSecret: string;
+  mcpOAuthStateSecretName: string;
   tokenStore: TokenStoreKind;
   accountsSecretName: string;
   enableWriteTools: boolean;
@@ -57,10 +57,10 @@ export function loadConfig(): Config {
     gcpProjectId: tokenStore === 'secret-manager' ? required('GCP_PROJECT_ID') : optional('GCP_PROJECT_ID', ''),
     googleClientId: required('GOOGLE_CLIENT_ID'),
     googleClientSecret: required('GOOGLE_CLIENT_SECRET'),
-    mcpBearerToken: required('MCP_BEARER_TOKEN'),
     adminUsername: optional('ADMIN_USERNAME', 'admin'),
     adminPassword: required('ADMIN_PASSWORD'),
     oauthStateSecret: required('OAUTH_STATE_SECRET'),
+    mcpOAuthStateSecretName: optional('MCP_OAUTH_STATE_SECRET_NAME', 'mcp-oauth-state'),
     tokenStore,
     accountsSecretName: optional('ACCOUNTS_SECRET_NAME', 'gmail-mcp-accounts'),
     enableWriteTools: optional('ENABLE_WRITE_TOOLS', 'false').toLowerCase() === 'true',
