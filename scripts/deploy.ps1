@@ -90,8 +90,11 @@ $existingUrl = (gcloud run services describe $ServiceName --region $Region --pro
 # Preserve the URL already configured in the running revision. This matters for
 # older deployments that registered a stable Cloud Run hostname instead of the
 # status.url alias; changing it would invalidate the existing OAuth callback.
-$existingPublicBaseUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId `
-  --format "value(spec.template.spec.containers[0].env.filter(name=PUBLIC_BASE_URL).value)" 2>$null)
+$serviceDescription = gcloud run services describe $ServiceName --region $Region --project $ProjectId `
+  --format json 2>$null | ConvertFrom-Json
+$existingPublicBaseUrl = @($serviceDescription.spec.template.spec.containers[0].env |
+  Where-Object { $_.name -eq "PUBLIC_BASE_URL" } |
+  Select-Object -First 1 -ExpandProperty value)
 $preserveExistingPublicBaseUrl = $existingPublicBaseUrl -and $existingPublicBaseUrl.Trim()
 $firstPassUrl = if ($existingPublicBaseUrl -and $existingPublicBaseUrl.Trim()) {
   $existingPublicBaseUrl.Trim()

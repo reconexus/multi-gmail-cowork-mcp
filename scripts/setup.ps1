@@ -180,8 +180,12 @@ try {
 }
 
 $StatusServiceUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId --format "value(status.url)").Trim()
-$ConfiguredPublicBaseUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId `
-  --format "value(spec.template.spec.containers[0].env.filter(name=PUBLIC_BASE_URL).value)" 2>$null).Trim()
+$ServiceDescription = gcloud run services describe $ServiceName --region $Region --project $ProjectId `
+  --format json 2>$null | ConvertFrom-Json
+$ConfiguredPublicBaseUrl = @($ServiceDescription.spec.template.spec.containers[0].env |
+  Where-Object { $_.name -eq "PUBLIC_BASE_URL" } |
+  Select-Object -First 1 -ExpandProperty value)
+$ConfiguredPublicBaseUrl = if ($ConfiguredPublicBaseUrl) { $ConfiguredPublicBaseUrl.Trim() } else { "" }
 $ServiceUrl = if ($ConfiguredPublicBaseUrl) { $ConfiguredPublicBaseUrl } else { $StatusServiceUrl }
 
 # ---------------------------------------------------------------------------
