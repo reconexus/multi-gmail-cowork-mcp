@@ -1,13 +1,13 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import express from 'express';
-import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import { createOAuthMetadata, mcpAuthMetadataRouter, mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createAdminRouter } from './adminRouter.js';
 import { loadConfig } from './config.js';
 import { log } from './logger.js';
 import { mcpOAuthAuth } from './mcpAuth.js';
-import { createMcpOAuthProvider, MCP_SCOPE } from './mcpOAuth.js';
+import { createMcpOAuthProvider, mcpResourceUrl, MCP_SCOPE } from './mcpOAuth.js';
 import { createMcpServer } from './mcpServer.js';
 import { createOAuthCallbackRouter } from './oauthCallback.js';
 import { escapeHtml } from './html.js';
@@ -69,15 +69,33 @@ app.post('/authorize/consent', express.urlencoded({ extended: false }), async (r
   }
 });
 
+const oauthRouterOptions = {
+  provider: mcpOAuthProvider,
+  issuerUrl: new URL(config.publicBaseUrl),
+  baseUrl: new URL(config.publicBaseUrl),
+  scopesSupported: [MCP_SCOPE],
+  resourceName: 'Multi-Gmail Cowork MCP',
+  serviceDocumentationUrl: new URL(config.publicBaseUrl),
+};
+
 // MCP authorization-server metadata, DCR, PKCE authorization, and token
 // endpoints. The official SDK router also serves RFC 9728 protected-resource
-// metadata at /.well-known/oauth-protected-resource/mcp.
+// metadata for the backward-compatible /mcp resource.
 app.use(
   mcpAuthRouter({
-    provider: mcpOAuthProvider,
-    issuerUrl: new URL(config.publicBaseUrl),
-    baseUrl: new URL(config.publicBaseUrl),
-    resourceServerUrl: new URL(`${config.publicBaseUrl}/mcp`),
+    ...oauthRouterOptions,
+    resourceServerUrl: mcpResourceUrl('/mcp'),
+  }),
+);
+
+// /claude-mcp is a second, independently discoverable protected resource on
+// this same OAuth authorization server. It must advertise its own resource
+// URI instead of redirecting to /mcp, so Claude does not reuse an orphaned
+// connector record keyed to the old resource URL.
+app.use(
+  mcpAuthMetadataRouter({
+    oauthMetadata: createOAuthMetadata(oauthRouterOptions),
+    resourceServerUrl: mcpResourceUrl('/claude-mcp'),
     scopesSupported: [MCP_SCOPE],
     resourceName: 'Multi-Gmail Cowork MCP',
     serviceDocumentationUrl: new URL(config.publicBaseUrl),
@@ -87,8 +105,9 @@ app.use(
 // The MCP endpoint Claude talks to. Stateless Streamable HTTP: a fresh MCP
 // server and transport per request, so any Cloud Run instance can serve any
 // request with no session affinity required. Gated by OAuth access tokens.
-const requireMcpAuth = mcpOAuthAuth(mcpOAuthProvider);
-app.post('/mcp', requireMcpAuth, express.json(), async (req, res) => {
+const requireMcpAuth = mcpOAuthAuth(mcpOAuthProvider, mcpResourceUrl('/mcp'));
+const requireClaudeMcpAuth = mcpOAuthAuth(mcpOAuthProvider, mcpResourceUrl('/claude-mcp'));
+const handleMcpPost = async (req: express.Request, res: express.Response) => {
   try {
     const mcpServer = createMcpServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -104,7 +123,10 @@ app.post('/mcp', requireMcpAuth, express.json(), async (req, res) => {
       res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal server error' }, id: null });
     }
   }
-});
+};
+
+app.post('/mcp', requireMcpAuth, express.json(), handleMcpPost);
+app.post('/claude-mcp', requireClaudeMcpAuth, express.json(), handleMcpPost);
 
 app.get('/mcp', requireMcpAuth, (_req, res) => {
   res
@@ -112,6 +134,16 @@ app.get('/mcp', requireMcpAuth, (_req, res) => {
     .json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed in stateless mode.' }, id: null });
 });
 app.delete('/mcp', requireMcpAuth, (_req, res) => {
+  res
+    .status(405)
+    .json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed in stateless mode.' }, id: null });
+});
+app.get('/claude-mcp', requireClaudeMcpAuth, (_req, res) => {
+  res
+    .status(405)
+    .json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed in stateless mode.' }, id: null });
+});
+app.delete('/claude-mcp', requireClaudeMcpAuth, (_req, res) => {
   res
     .status(405)
     .json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed in stateless mode.' }, id: null });

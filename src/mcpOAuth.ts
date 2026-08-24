@@ -24,6 +24,7 @@ import { escapeHtml, pageShell } from './html.js';
 import { safeEqual } from './safeCompare.js';
 
 export const MCP_SCOPE = 'mcp:tools';
+export const MCP_RESOURCE_PATHS = ['/mcp', '/claude-mcp'] as const;
 const ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const AUTHORIZATION_CODE_TTL_SECONDS = 5 * 60;
@@ -206,16 +207,17 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function expectedResource(): string {
-  return `${loadConfig().publicBaseUrl}/mcp`;
+export function mcpResourceUrl(path: (typeof MCP_RESOURCE_PATHS)[number]): URL {
+  return new URL(`${loadConfig().publicBaseUrl}${path}`);
 }
 
 function validateResource(resource: URL | undefined): string {
-  const expected = expectedResource();
-  if (resource && resource.toString().replace(/\/$/, '') !== expected.replace(/\/$/, '')) {
+  const allowed = MCP_RESOURCE_PATHS.map((path) => mcpResourceUrl(path).href.replace(/\/$/, ''));
+  const requested = resource?.toString().replace(/\/$/, '');
+  if (requested && !allowed.includes(requested)) {
     throw new InvalidTargetError('The requested resource is not this MCP server.');
   }
-  return expected;
+  return requested ?? allowed[0];
 }
 
 function validateScopes(scopes: string[]): string[] {

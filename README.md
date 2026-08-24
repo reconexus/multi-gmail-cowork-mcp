@@ -142,9 +142,12 @@ there is no static connector header to copy or put in a URL.
 In Claude, open **Customize -> Connectors -> Add custom connector** and enter exactly:
 
 1. **Connector name:** `Multi Gmail`
-2. **Remote MCP URL:** the printed URL ending in `/mcp`
+2. **Remote MCP URL:** the printed URL ending in `/claude-mcp`
 3. **OAuth Client ID:** leave blank (the server supports Dynamic Client Registration)
 4. **OAuth Client Secret:** leave blank
+
+The `/mcp` route remains available for existing clients; use `/claude-mcp` for new Claude
+connectors so its OAuth resource identity is independent of older connector records.
 
 Click **Add**, then **Connect**. Claude discovers the MCP authorization metadata, registers
 itself, and opens the deployment's **Authorize MCP access** page. Sign in there with username
@@ -205,8 +208,8 @@ account storage, auth, or the multi-account model — but no write capability ex
   "Testing" publishing status. Publish it to "In production" (see step 3) — it can stay
   unverified, that's fine for personal use.
 - **Claude can't reach the connector / connection fails silently:** confirm the service URL
-  resolves over plain HTTPS with no redirect to a different host, then open the MCP URL ending
-  in `/mcp` in Claude and click **Connect** again. The server must return OAuth metadata and a
+resolves over plain HTTPS with no redirect to a different host, then open the MCP URL ending
+  in `/claude-mcp` in Claude and click **Connect** again. The server must return OAuth metadata and a
   401 challenge when called without an access token; no static request header is required.
 - **`gcloud run deploy` fails on APIs not enabled:** re-run `scripts/setup.ps1`, or run
   `gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com gmail.googleapis.com iam.googleapis.com`.

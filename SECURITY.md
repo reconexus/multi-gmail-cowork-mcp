@@ -76,7 +76,7 @@ Every route is instead authenticated at the application layer, individually:
 
 | Route | Protected by |
 |---|---|
-| `POST /mcp` | OAuth access token with `mcp:tools` scope (`src/mcpAuth.ts`) |
+| `POST /mcp`, `POST /claude-mcp` | OAuth access token with `mcp:tools` scope (`src/mcpAuth.ts`) |
 | `GET /.well-known/oauth-protected-resource/mcp` | Public metadata only; points clients at the authorization server |
 | `GET /authorize`, `POST /token`, `POST /register` | OAuth authorization-server endpoints; authorization requires admin consent |
 | `GET /admin/*` | HTTP Basic Auth (`src/adminAuth.ts`) |

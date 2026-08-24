@@ -119,7 +119,7 @@ $displayUrl = if ($preserveExistingPublicBaseUrl) { $existingPublicBaseUrl.Trim(
 
 Write-Host ""
 Write-Host "Deployed." -ForegroundColor Green
-Write-Host "  MCP endpoint (for Claude):        $displayUrl/mcp"
+Write-Host "  MCP endpoint (for Claude):        $displayUrl/claude-mcp"
 Write-Host "  Admin page (connect accounts):    $displayUrl/admin"
 Write-Host "  Google OAuth redirect URI needed: $displayUrl/oauth/google/callback"
 Write-Host ""

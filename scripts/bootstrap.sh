@@ -138,8 +138,9 @@ check_http() {
 }
 
 check_mcp_auth() {
+  local path="${1:-/mcp}"
   local actual_code
-  actual_code="$(curl -sS -X POST -o /dev/null -w '%{http_code}' --max-time 30 "${service_url}/mcp" || true)"
+  actual_code="$(curl -sS -X POST -o /dev/null -w '%{http_code}' --max-time 30 "${service_url}${path}" || true)"
   [[ "$actual_code" == "401" ]]
 }
 
@@ -317,13 +318,14 @@ printf '\nRunning public endpoint checks...\n'
 if check_http /status 200; then pass '/status returns 200'; else printf 'FAIL  /status did not return 200\n'; fi
 if check_http /admin 401; then pass '/admin is protected (401 without credentials)'; else printf 'FAIL  /admin protection check failed\n'; fi
 if [[ "$oauth_client_needed" == "false" ]]; then
-  if check_mcp_auth; then pass '/mcp is protected (401 without OAuth access token)'; else printf 'FAIL  /mcp protection check failed\n'; fi
+  if check_mcp_auth /mcp; then pass '/mcp is protected (401 without OAuth access token)'; else printf 'FAIL  /mcp protection check failed\n'; fi
+  if check_mcp_auth /claude-mcp; then pass '/claude-mcp is protected (401 without OAuth access token)'; else printf 'FAIL  /claude-mcp protection check failed\n'; fi
 fi
 
 printf '\nFinal setup summary\n'
 printf 'Admin URL:          %s/admin\n' "$service_url"
 printf 'OAuth callback URL: %s/oauth/google/callback\n' "$service_url"
-printf 'MCP URL:            %s/mcp\n' "$service_url"
+printf 'MCP URL:            %s/claude-mcp\n' "$service_url"
 printf 'Next human action:  '
 if [[ "$oauth_client_needed" == "true" ]]; then
   printf 'complete the OAuth client step above, then rerun ./scripts/bootstrap.sh.\n'
