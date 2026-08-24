@@ -31,7 +31,7 @@ export function buildAuthorizationUrl(state: string, pkce: Pkce): string {
   const client = newClient();
   return client.generateAuthUrl({
     access_type: 'offline',
-    prompt: 'consent',
+    prompt: 'consent select_account',
     scope: [GMAIL_READONLY_SCOPE],
     include_granted_scopes: false,
     state,

@@ -48,9 +48,18 @@ function New-SecretContainer([string]$Name) {
 }
 
 function Set-SecretValue([string]$Name, [string]$Value) {
-  # --data-file=- reads the value from stdin so it never appears as a CLI argument
-  # (which would otherwise risk landing in shell history or a process listing).
-  $Value | gcloud secrets versions add $Name --project $ProjectId --data-file=- | Out-Null
+  # Write exact UTF-8 bytes to a private temporary file. PowerShell's pipeline
+  # adds a line ending when piping strings to stdin, which would become part of
+  # the secret and make credentials fail mysteriously. The file is removed in
+  # finally, and the value never appears in a command argument or output.
+  $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) ("multi-gmail-secret-" + [guid]::NewGuid().ToString('N'))
+  try {
+    [System.IO.File]::WriteAllText($tempPath, $Value, [System.Text.UTF8Encoding]::new($false))
+    gcloud secrets versions add $Name --project $ProjectId --data-file=$tempPath | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to write Secret Manager secret '$Name'." }
+  } finally {
+    Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+  }
 }
 
 function Get-SecretValue([string]$Name) {
@@ -117,10 +126,11 @@ foreach ($name in $StaticSecrets) {
   }
 }
 
-$GoogleClientIdIsNew = -not (Test-SecretExists "google-client-id")
+$googleClientIdIsNew = -not (Test-SecretExists "google-client-id")
+$googleClientSecretIsNew = -not (Test-SecretExists "google-client-secret")
 New-SecretContainer "google-client-id"
 New-SecretContainer "google-client-secret"
-if ($GoogleClientIdIsNew) {
+if ($googleClientIdIsNew -or $googleClientSecretIsNew) {
   Set-SecretValue "google-client-id" "REPLACE_ME"
   Set-SecretValue "google-client-secret" "REPLACE_ME"
 }
@@ -161,7 +171,12 @@ try {
 $ServiceUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId --format "value(status.url)").Trim()
 
 # ---------------------------------------------------------------------------
-$NeedsOAuthClient = (Get-SecretValue "google-client-id") -eq "REPLACE_ME"
+$ClientIdValue = Get-SecretValue "google-client-id"
+$ClientSecretValue = Get-SecretValue "google-client-secret"
+$NeedsOAuthClient = [string]::IsNullOrWhiteSpace($ClientIdValue) -or
+  [string]::IsNullOrWhiteSpace($ClientSecretValue) -or
+  $ClientIdValue -eq "REPLACE_ME" -or
+  $ClientSecretValue -eq "REPLACE_ME"
 
 if ($NeedsOAuthClient) {
   Step "One manual step: create your Google OAuth client"
@@ -195,6 +210,7 @@ if ($NeedsOAuthClient) {
   if ($clientId -and $clientSecret) {
     Set-SecretValue "google-client-id" $clientId
     Set-SecretValue "google-client-secret" $clientSecret
+    $NeedsOAuthClient = $false
     Write-Host "Stored. Redeploying so the running service picks up the real OAuth client..."
     Push-Location $RepoRoot
     try {
@@ -210,25 +226,26 @@ if ($NeedsOAuthClient) {
 } else {
   Write-Host "Google OAuth client already configured  -  skipping." -ForegroundColor Green
 }
+Remove-Variable ClientIdValue, ClientSecretValue, clientSecret, clientSecretPlain -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------------------
 Step "Done"
 
-$AdminPassword = Get-SecretValue "admin-password"
-$McpToken = Get-SecretValue "mcp-bearer-token"
-
 Write-Host ""
-Write-Host "Admin page (connect/remove Gmail accounts):" -ForegroundColor Cyan
-Write-Host "  URL:      $ServiceUrl/admin"
-Write-Host "  Username: admin"
-Write-Host "  Password: $AdminPassword"
+Write-Host "PASS  Deployment complete" -ForegroundColor Green
+Write-Host "  Admin URL:              $ServiceUrl/admin"
+Write-Host "  OAuth callback URL:     $ServiceUrl/oauth/google/callback"
+Write-Host "  MCP URL:                $ServiceUrl/mcp"
+Write-Host "  Admin username:         admin"
 Write-Host ""
-Write-Host "MCP connector (add this in Claude, under Custom Connectors):" -ForegroundColor Cyan
-Write-Host "  URL:          $ServiceUrl/mcp"
-Write-Host "  Header name:  Authorization"
-Write-Host "  Header value: Bearer $McpToken"
+Write-Host "Next human action:" -ForegroundColor Yellow
+if ($NeedsOAuthClient) {
+  Write-Host "  Complete the OAuth client step above, then rerun scripts/setup.ps1."
+} else {
+  Write-Host "  Open the Admin URL, authenticate, and add Gmail accounts."
+  Write-Host "  Then add one Claude custom connector using the MCP URL."
+  Write-Host "  If Claude asks for a bearer header, retrieve it only when needed with:"
+  Write-Host "    gcloud secrets versions access latest --secret=mcp-bearer-token --project $ProjectId"
+}
 Write-Host ""
-Write-Host "Save the admin password and MCP header value now (e.g. in a password manager)." -ForegroundColor Yellow
-Write-Host "They won't be printed again by this script. You can always look them up again with:" -ForegroundColor Yellow
-Write-Host "  gcloud secrets versions access latest --secret=admin-password --project $ProjectId"
-Write-Host "  gcloud secrets versions access latest --secret=mcp-bearer-token --project $ProjectId"
+Write-Host "Secrets were not printed. Keep them in Secret Manager; rotate by adding a new version and redeploying." -ForegroundColor DarkGray

@@ -9,5 +9,14 @@ dist/
 .env
 .env.*
 .local/
+credentials/
+.secrets/
+*.secret.json
+token.json
+**/token.json
+service-account*.json
+*-service-account*.json
+client_secret*.json
+*.pem
 *.md
 scripts/

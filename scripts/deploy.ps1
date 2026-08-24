@@ -87,7 +87,19 @@ function Deploy([string]$PublicBaseUrl) {
 
 $existingUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId `
   --format "value(status.url)" 2>$null)
-$firstPassUrl = if ($existingUrl) { $existingUrl.Trim() } else { "https://not-yet-known.invalid" }
+# Preserve the URL already configured in the running revision. This matters for
+# older deployments that registered a stable Cloud Run hostname instead of the
+# status.url alias; changing it would invalidate the existing OAuth callback.
+$existingPublicBaseUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId `
+  --format "value(spec.template.spec.containers[0].env.filter(name=PUBLIC_BASE_URL).value)" 2>$null)
+$preserveExistingPublicBaseUrl = $existingPublicBaseUrl -and $existingPublicBaseUrl.Trim()
+$firstPassUrl = if ($existingPublicBaseUrl -and $existingPublicBaseUrl.Trim()) {
+  $existingPublicBaseUrl.Trim()
+} elseif ($existingUrl) {
+  $existingUrl.Trim()
+} else {
+  "https://not-yet-known.invalid"
+}
 
 Write-Host "Deploying '$ServiceName' to project '$ProjectId' ($Region)..." -ForegroundColor Cyan
 Deploy $firstPassUrl
@@ -95,7 +107,7 @@ Deploy $firstPassUrl
 $serviceUrl = (gcloud run services describe $ServiceName --region $Region --project $ProjectId `
   --format "value(status.url)").Trim()
 
-if ($serviceUrl -ne $firstPassUrl) {
+if (-not $preserveExistingPublicBaseUrl -and $serviceUrl -ne $firstPassUrl) {
   Write-Host "Service URL is $serviceUrl  -  redeploying so PUBLIC_BASE_URL matches (needed for the OAuth redirect URI)..." -ForegroundColor Yellow
   Deploy $serviceUrl
 }

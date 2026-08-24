@@ -15,6 +15,12 @@ build/
 credentials/
 .secrets/
 .local/
+token.json
+**/token.json
+service-account*.json
+*-service-account*.json
+client_secret*.json
+*.pem
 
 # Logs
 *.log

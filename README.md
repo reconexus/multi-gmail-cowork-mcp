@@ -1,5 +1,10 @@
 # multi-gmail-cowork-mcp
 
+[![Open in Google Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://console.cloud.google.com/cloudshell/open?git_repo=https://github.com/YOUR-OWNER/multi-gmail-cowork-mcp&shellonly=true)
+
+The button uses the repository URL that will be published after the final review. If you
+are running an unpublished fork, open Cloud Shell and clone that fork first.
+
 A small, self-hosted [MCP](https://modelcontextprotocol.io) server that lets **one Claude
 custom connector** search and read **multiple, independently-authenticated Gmail accounts**
 — read-only. Built to be deployed by anyone into their own Google Cloud project, with zero
@@ -71,107 +76,94 @@ limitations. This README does not repeat that reasoning.
 
 ## Prerequisites
 
-- Node.js 20+ (for local development/testing only — Cloud Run builds it for you in
-  production)
-- A Google Cloud account and a project you control (a fresh project is fine)
-- The [`gcloud` CLI](https://cloud.google.com/sdk/docs/install), authenticated
-  (`gcloud init`, `gcloud auth login`)
-- Windows PowerShell (the provided scripts are `.ps1`; `scripts/deploy.ps1` and
-  `scripts/setup.ps1` only shell out to `gcloud`, so they'd translate easily to bash if you
-  are not on Windows)
-- A Claude plan that supports custom connectors (for connecting to Cowork/claude.ai)
+- A Google account and a Google Cloud project with billing enabled (the bootstrap prints the
+  exact billing page if billing is not linked).
+- A Claude plan that supports custom connectors (for connecting to Cowork/claude.ai).
+- Nothing else is required for a deployment: Google Cloud Shell already includes `gcloud`,
+  `curl`, `openssl`, and `jq`.
 
-## Quick start
+## One-command Cloud Shell setup (recommended)
 
-### 1. Test locally first (no GCP required)
+1. Open this repository in Google Cloud Shell using the button above (or use **Open in Cloud
+   Shell** on GitHub).
+2. Authenticate if Cloud Shell asks, then run:
 
 ```bash
-npm install
-cp .env.example .env
+./scripts/bootstrap.sh
 ```
 
-Edit `.env`:
-- Leave `TOKEN_STORE=file` (stores accounts in the gitignored `.local/` folder — dev only)
-- Generate three secrets and paste them in:
-  ```bash
-  node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
-  ```
-  Use this for `MCP_BEARER_TOKEN`, `ADMIN_PASSWORD`, and `OAUTH_STATE_SECRET` (run it three
-  times, once per value).
-- To fully test the Gmail-linking flow locally you'll also need a real
-  `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` with `http://localhost:<PORT>/oauth/google/callback`
-  registered as a redirect URI — see step 3 below, you can do that step first and reuse the
-  same OAuth client for both local testing and production (just add both redirect URIs to
-  it).
+The script asks you to select a project (or creates one), checks billing, enables the required
+APIs, creates the dedicated Cloud Run runtime service account, assigns only the Secret Manager
+roles it needs, creates all secrets, deploys Cloud Run, and prints PASS/FAIL checks. It is safe
+to rerun: existing secrets, account records, OAuth credentials, and Cloud Run services are
+preserved.
+
+The script never prints a password, OAuth client secret, refresh token, account-store JSON, or
+MCP bearer token. Secret values are written as exact bytes (no trailing-newline credential bug).
+Use `./scripts/bootstrap.sh --check` for a read-only Cloud Shell prerequisite check.
+
+### The one unavoidable Google browser step
+
+Google does not provide a safe, supported API/CLI operation for creating a general-purpose web
+OAuth client. When the bootstrap asks, open the Google Auth Platform page it prints and do the
+following:
+
+- Configure the app as **External**, add the scope
+  `https://www.googleapis.com/auth/gmail.readonly`, and add the Gmail addresses you will use as
+  test users.
+- Create an OAuth client with application type **Web application**.
+- Enter the exact callback URI printed by the script:
+  `https://<your-cloud-run-host>/oauth/google/callback`.
+- Paste the resulting Client ID and Client Secret into the hidden prompts in Cloud Shell.
+
+If Google shows an unverified-app warning, that is expected for a personal deployment. Publish
+the consent screen to **In production** if you want refresh tokens to remain valid beyond the
+Testing-mode seven-day limit; verification is not required for a personal/small deployment.
+
+At the end, bootstrap prints the Admin URL, exact OAuth callback URL, MCP URL, and the next human
+action. Keep the bearer token in Secret Manager; retrieve it only when Claude explicitly requires
+manual header entry:
 
 ```bash
-npm run dev
+gcloud secrets versions access latest --secret=mcp-bearer-token --project=YOUR_PROJECT_ID
 ```
 
-Visit `http://localhost:8080/admin` (Basic Auth: `admin` / your `ADMIN_PASSWORD`) and try
-connecting an account.
+Do not paste that value into chat, a URL, shell history, or a public issue.
 
-### 2. Deploy to your own Google Cloud project
+## Connect Gmail accounts
 
-```powershell
-gcloud config set project YOUR_PROJECT_ID
-./scripts/setup.ps1
-```
+1. Open the printed Admin URL and sign in with username `admin` and the admin password you set
+   or retrieve from your own Secret Manager. The password is intentionally never displayed by
+   the bootstrap.
+2. Enter a short alias such as `personal` or `work`, click **Add Gmail Account**, and complete
+   Google authorization. The authorization URL requests `consent select_account`, so Google
+   shows the account chooser every time. The address displayed after callback is the address
+   Google actually authorized; it is not taken from the alias field.
+3. Repeat for as many Gmail accounts as desired. Each alias is independent and all results are
+   attributed to both alias and verified Gmail address.
 
-This is interactive and will:
-1. Enable the required APIs.
-2. Create a dedicated, least-privilege Cloud Run service account.
-3. Create the Secret Manager secrets (generating the bearer token, admin password, and
-   state-signing secret for you).
-4. Deploy once to Cloud Run so you learn the service's real URL.
-5. Walk you through the one step Google doesn't let us automate: creating the OAuth
-   consent screen and OAuth client ID (see step 3 below — `setup.ps1` prints the exact
-   redirect URI to use and prompts you to paste the resulting Client ID/Secret).
-6. Redeploy with the real OAuth client, and print your admin URL/password and MCP
-   URL/token.
+## Connect Claude Cowork
 
-`setup.ps1` is safe to re-run — every step checks whether it's already done. Re-run
-`scripts/deploy.ps1` any time you change code or just want to push a new revision.
+In Claude, open **Customize -> Connectors -> Add custom connector** and create exactly one
+connector named **Multi Gmail** with the printed MCP URL (`.../mcp`). If the Claude client
+offers request headers, add:
 
-### 3. Create the Google OAuth client (manual — Google doesn't offer a reliable API for this)
+- Header name: `Authorization`
+- Header value: `Bearer <the value retrieved from Secret Manager>`
 
-1. **OAuth consent screen:** Google Cloud Console -> APIs & Services -> OAuth consent
-   screen.
-   - User type: **External**
-   - Add scope: `https://www.googleapis.com/auth/gmail.readonly`
-   - Save, then click **Publish app** to move it to "In production" (see "Google OAuth
-     Testing vs. longer-term use" below — do not leave it in Testing).
-2. **OAuth client ID:** APIs & Services -> Credentials -> Create Credentials -> OAuth
-   client ID.
-   - Application type: **Web application**
-   - Authorized redirect URI: `https://<your-service-url>/oauth/google/callback` (printed
-     by `setup.ps1`/`deploy.ps1`; for local testing also add
-     `http://localhost:8080/oauth/google/callback`)
-3. Copy the Client ID and Client Secret into `setup.ps1` when prompted (or into `.env` for
-   local dev, or update the `google-client-id`/`google-client-secret` Secret Manager
-   secrets directly for an existing deployment).
+Some Claude web builds expose OAuth-only custom connectors and do not show a request-header
+field. In that client, use a Cowork/Claude client that supports static MCP request headers or
+follow its secure manual-secret prompt; never change the server to accept a token in the URL.
+Ask Claude to call `list_accounts`, then run an alias-specific search for each account and
+`search_all_accounts` to verify attribution.
 
-### 4. Connect Gmail accounts
+## Local development (optional)
 
-Open `https://<your-service-url>/admin`, sign in with the admin password `setup.ps1`
-printed, enter a short alias (e.g. `work`), click **Connect account**, and complete
-Google's sign-in and consent screen. The account appears in the table once Google confirms
-which address you actually authorized — the alias you type is just a label; the email
-address shown is always the one Google verified, never something you type yourself.
-
-Repeat for each Gmail account.
-
-### 5. Connect Claude Cowork
-
-In Claude: **Customize -> Connectors -> Add custom connector**.
-- URL: `https://<your-service-url>/mcp`
-- Advanced settings -> Request headers (this is currently a beta feature in Claude's UI):
-  - Header name: `Authorization`
-  - Header value: `Bearer <your MCP bearer token>` (printed by `setup.ps1`; type the word
-    `Bearer` yourself — Claude sends the header value exactly as entered, with no added
-    prefix)
-
-Ask Claude to list your connected accounts to confirm it's working.
+For source development only, install Node.js 20+, run `npm install`, copy `.env.example` to
+`.env`, set `TOKEN_STORE=file`, and use `npm run dev`. Local Gmail OAuth requires a separate
+OAuth client callback such as `http://localhost:8080/oauth/google/callback`; do not reuse or
+commit production secrets. Windows users can use `scripts/setup.ps1` and `scripts/deploy.ps1`
+instead of the Cloud Shell bootstrap.
 
 ## Updating / revoking accounts
 
@@ -244,7 +236,7 @@ sources.
 
 ```
 src/            TypeScript source (server, MCP tools, admin UI, OAuth flows)
-scripts/        setup.ps1, deploy.ps1 — Windows-friendly provisioning/deploy
+scripts/        bootstrap.sh (Cloud Shell), setup.ps1/deploy.ps1 (Windows)
 .env.example    Local-dev configuration template (placeholders only)
 SECURITY.md     Trust model, design rationale, known limitations
 ```
