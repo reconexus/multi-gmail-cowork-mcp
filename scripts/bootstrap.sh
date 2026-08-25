@@ -346,6 +346,9 @@ printf '\nFinal setup summary\n'
 printf 'Admin URL:          %s/admin\n' "$service_url"
 printf 'OAuth callback URL: %s/oauth/google/callback\n' "$service_url"
 printf 'MCP URL:            %s/claude-mcp\n' "$service_url"
+printf 'Admin password:     retrieve it once with the command below (never printed here):\n'
+printf '    gcloud secrets versions access latest --secret=admin-password --project=%s\n' "$project_id"
+printf '                     sign in to the Admin URL with username "admin" + that password.\n'
 if [[ -n "$billing_account" ]]; then
   printf 'Budget alert (opt): https://console.cloud.google.com/billing/%s/budgets\n' "${billing_account##*/}"
 fi
