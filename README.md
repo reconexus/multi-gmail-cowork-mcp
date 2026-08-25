@@ -219,6 +219,23 @@ from the selected Gmail identity; the result includes that verified address. The
 tool. Claude connector permissions should allow read tools automatically while keeping
 `create_draft` and `send_email` set to **Needs approval**.
 
+## Updating and rotating
+
+- **Update the deployment** after changing source or to pick up a new secret
+  version: rerun `./scripts/bootstrap.sh` (idempotent — preserves accounts,
+  tokens, and the OAuth client) or, on Windows, `scripts/deploy.ps1`. Existing
+  Gmail connections and the Claude connector are unaffected.
+- **Rotate the admin password:** add a new Secret Manager version for
+  `admin-password` and redeploy. Existing Claude connector tokens stay valid
+  (they are not derived from the admin password); only future MCP consent
+  approvals use the new password.
+- **Rotate `oauth-state-secret`:** this signs every MCP OAuth token, so rotating
+  it invalidates the Claude connector's existing tokens — reconnect Claude
+  afterward. Pending Gmail-linking state tokens (10-minute lifetime) also
+  invalidate; connected Gmail accounts are untouched.
+- **Rotate a Gmail account's grant:** reconnect the alias from the admin page
+  (see [Reauthorizing / revoking accounts](#reauthorizing--revoking-accounts)).
+
 ## How to delete everything
 
 - **Remove Gmail access:** disconnect each account from `/admin`, or revoke access
