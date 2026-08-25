@@ -14,8 +14,16 @@ function renderAdminPage(accounts: AccountSummary[], message?: string): string {
       (a) => `<tr>
   <td>${escapeHtml(a.alias)}</td>
   <td>${escapeHtml(a.email)}</td>
-  <td>Connected</td>
+  <td>${a.status === 'connected' ? 'Connected' : 'Needs Gmail permission upgrade'}</td>
   <td>
+    ${
+      a.status === 'reauthorization_required'
+        ? `<form class="inline" method="post" action="/admin/accounts/start">
+      <input type="hidden" name="alias" value="${escapeHtml(a.alias)}">
+      <button type="submit">Reauthorize</button>
+    </form>`
+        : ''
+    }
     <form class="inline" method="post" action="/admin/accounts/${encodeURIComponent(a.alias)}/disconnect">
       <button type="submit">Disconnect</button>
     </form>
@@ -40,8 +48,8 @@ ${message ? `<p class="msg">${escapeHtml(message)}</p>` : ''}
   </label>
   <button type="submit">Connect account</button>
 </form>
-<p><small>Connecting opens Google's sign-in and consent screen. You choose the Google account there; this app
-only ever sees the address Google confirms after you approve read-only Gmail access.</small></p>
+<p><small>Connecting or reauthorizing opens Google's sign-in and consent screen. You choose the Google account there;
+this app only ever sees the address Google confirms after you approve the Gmail read, compose, and send permission.</small></p>
 `;
   return pageShell('Multi-Gmail MCP — Admin', body);
 }

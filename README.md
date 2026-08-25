@@ -6,8 +6,8 @@ The button uses the repository URL that will be published after the final review
 are running an unpublished fork, open Cloud Shell and clone that fork first.
 
 A small, self-hosted [MCP](https://modelcontextprotocol.io) server that lets **one Claude
-custom connector** search and read **multiple, independently-authenticated Gmail accounts**
-— read-only. Built to be deployed by anyone into their own Google Cloud project, with zero
+custom connector** search, read, compose, and send through **multiple, independently-authenticated Gmail accounts**.
+Built to be deployed by anyone into their own Google Cloud project, with zero
 shared infrastructure and zero code changes required per deployment.
 
 ```
@@ -35,8 +35,8 @@ a clear error — this server never silently substitutes a different account.
 
 ## What this is not
 
-Gmail only. No Calendar, Drive, Docs, Sheets, or Contacts. No sending/drafting by default
-(see "Write access" below). No shared backend, no central account, no telemetry.
+Gmail only. No Calendar, Drive, Docs, Sheets, or Contacts. No permanent-delete tool. No
+shared backend, no central account, no telemetry.
 
 ## Privacy model — who can see your email
 
@@ -69,7 +69,7 @@ limitations. This README does not repeat that reasoning.
   Dynamic Client Registration, short-lived access tokens, rotating refresh tokens, and
   deployment-local authorization state in Secret Manager.
 - **Server <-> Google auth:** standard OAuth 2.0 with PKCE, one grant per connected Gmail
-  account, `gmail.readonly` scope.
+  account, `gmail.modify` scope (read, compose, send, and mailbox modification; no permanent delete).
 - **Account storage:** one Google Secret Manager secret holding a small JSON array
   (alias, email, refresh token). No database.
 - **Admin UI:** a few unstyled HTML pages behind HTTP Basic Auth — just enough to connect
@@ -110,7 +110,7 @@ OAuth client. When the bootstrap asks, open the Google Auth Platform page it pri
 following:
 
 - Configure the app as **External**, add the scope
-  `https://www.googleapis.com/auth/gmail.readonly`, and add the Gmail addresses you will use as
+  `https://www.googleapis.com/auth/gmail.modify`, and add the Gmail addresses you will use as
   test users.
 - Create an OAuth client with application type **Web application**.
 - Enter the exact callback URI printed by the script:
@@ -167,23 +167,30 @@ OAuth client callback such as `http://localhost:8080/oauth/google/callback`; do 
 commit production secrets. Windows users can use `scripts/setup.ps1` and `scripts/deploy.ps1`
 instead of the Cloud Shell bootstrap.
 
-## Updating / revoking accounts
+## Reauthorizing / revoking accounts
 
-Go back to `/admin` and click **Disconnect** next to an account. This revokes the grant
-with Google (best-effort) and removes it from the credential store immediately — Claude
-will get a clear "not connected" error if it's asked for that alias afterward, never a
-silent fallback to a different account.
+After upgrading from the earlier read-only release, each existing account is marked **Needs
+Gmail permission upgrade**. Open `/admin`, click **Reauthorize** for the same alias, and
+complete Google's consent screen. The callback verifies that Google actually granted
+`https://www.googleapis.com/auth/gmail.modify` before replacing that alias's stored refresh
+token. Until then, read tools continue to work with the old grant, while write tools return a
+clear reauthorization message; no other alias is ever used.
 
-To reconnect the same alias (e.g. after revoking access on Google's side, or to refresh a
-broken grant), just click **Connect account** again with the same alias — it overwrites
-the old record.
+To remove access, click **Disconnect** next to an account. This revokes the grant with Google
+(best-effort) and removes it from the credential store immediately — Claude will get a clear
+"not connected" error if it's asked for that alias afterward, never a silent fallback.
 
-## Write access (disabled by default)
+To reconnect the same alias after revoking access on Google's side, use **Connect account**
+with the same alias — it overwrites the old record only after successful Google authorization.
 
-Version 1 is read-only. `ENABLE_WRITE_TOOLS=false` by default; no write tools or write
-scopes are requested. The codebase is structured so that adding narrowly-scoped write
-tools later (e.g. draft creation with `gmail.compose`) doesn't require rearchitecting
-account storage, auth, or the multi-account model — but no write capability exists yet.
+## Write tools and safety
+
+The deployed server exposes `create_draft` and `send_email`. Both require an explicit
+connected-account alias and never fall back to another account. `send_email` always sends
+from the selected Gmail identity; the result includes that verified address. The tools use
+`gmail.modify`, not the broader `mail.google.com` scope, and there is no permanent-delete
+tool. Claude connector permissions should allow read tools automatically while keeping
+`create_draft` and `send_email` set to **Needs approval**.
 
 ## How to delete everything
 
@@ -220,13 +227,13 @@ resolves over plain HTTPS with no redirect to a different host, then open the MC
 ## Google OAuth Testing vs. longer-term use
 
 Google Cloud OAuth clients start in **Testing** publishing status. While in Testing,
-refresh tokens for sensitive/restricted scopes (which includes `gmail.readonly`) expire
+refresh tokens for sensitive/restricted scopes (which includes `gmail.modify`) expire
 after **7 days**, regardless of how few users you have — this will silently break the
 connector on a weekly basis if left as-is.
 
 The fix is **not** Google verification (a multi-month process built for public SaaS). It's
 simpler: click **Publish app** to move the consent screen to **In production**. For an app
-requesting only `gmail.readonly` and staying under 100 total connected Google accounts,
+requesting only `gmail.modify` and staying under 100 total connected Google accounts,
 Google's own documentation treats this as a fully supported personal/small-scale use case —
 no verification required. The only visible effect is that each newly-connected account sees
 a one-time "Google hasn't verified this app" click-through warning before granting consent.

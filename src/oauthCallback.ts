@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getAccountStore } from './accountStore.js';
 import { clientForRefreshToken, exchangeCodeForRefreshToken, fetchAuthenticatedEmail } from './googleOAuth.js';
+import { GMAIL_MODIFY_SCOPE } from './config.js';
 import { escapeHtml, pageShell } from './html.js';
 import { log } from './logger.js';
 import { verifyState } from './oauthState.js';
@@ -17,7 +18,7 @@ function infoPage(title: string, message: string, isError: boolean): string {
 
 /**
  * Handles Google's redirect back after the user authorizes (or denies) Gmail
- * read-only access for one alias. This is a distinct OAuth flow from Claude's
+ * Gmail access for one alias. This is a distinct OAuth flow from Claude's
  * connection to this server's /mcp endpoint — see README "Two OAuth flows".
  */
 export function createOAuthCallbackRouter(): Router {
@@ -49,6 +50,9 @@ export function createOAuthCallbackRouter(): Router {
 
     try {
       const { refreshToken, scopes } = await exchangeCodeForRefreshToken(code, payload.codeVerifier);
+      if (!scopes.includes(GMAIL_MODIFY_SCOPE)) {
+        throw new Error('Google did not grant the required Gmail modify scope.');
+      }
       const client = clientForRefreshToken(refreshToken);
       const email = await fetchAuthenticatedEmail(client);
 

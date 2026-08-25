@@ -205,7 +205,7 @@ if ($NeedsOAuthClient) {
   Write-Host "     https://console.cloud.google.com/apis/credentials/consent?project=$ProjectId"
   Write-Host "     - User type: External"
   Write-Host "     - Fill in app name / support email"
-  Write-Host "     - Add the scope: https://www.googleapis.com/auth/gmail.readonly"
+  Write-Host "     - Add the scope: https://www.googleapis.com/auth/gmail.modify"
   Write-Host "     - Save, then click 'PUBLISH APP' to move it to 'In production'."
   Write-Host "       (It stays unverified  -  you'll see a one-time 'Google hasn't verified this"
   Write-Host "       app' warning per connected account. This is expected and documented in"

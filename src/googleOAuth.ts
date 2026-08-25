@@ -1,6 +1,6 @@
 import { randomBytes, createHash } from 'node:crypto';
 import { OAuth2Client } from 'google-auth-library';
-import { loadConfig, GMAIL_READONLY_SCOPE } from './config.js';
+import { GMAIL_MODIFY_SCOPE, loadConfig } from './config.js';
 
 export interface Pkce {
   codeVerifier: string;
@@ -32,7 +32,7 @@ export function buildAuthorizationUrl(state: string, pkce: Pkce): string {
   return client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent select_account',
-    scope: [GMAIL_READONLY_SCOPE],
+    scope: [GMAIL_MODIFY_SCOPE],
     include_granted_scopes: false,
     state,
     code_challenge: pkce.codeChallenge,

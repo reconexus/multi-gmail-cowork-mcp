@@ -278,7 +278,7 @@ function tokenResponse(tokens: ReturnType<typeof createTokens>): OAuthTokens {
 function renderConsentPage(pendingToken: string, clientName: string): string {
   const body = `
 <h1>Authorize ${escapeHtml(clientName)}</h1>
-<p>This will let Claude use the read-only Gmail tools exposed by this private deployment.</p>
+<p>This will let Claude use the Gmail tools exposed by this private deployment. Sending and drafting remain subject to the connector's tool-approval settings.</p>
 <form method="post" action="/authorize/consent">
   <input type="hidden" name="request" value="${escapeHtml(pendingToken)}">
   <label>Admin username:

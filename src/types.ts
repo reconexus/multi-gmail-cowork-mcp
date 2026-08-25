@@ -1,3 +1,5 @@
+import { GMAIL_MODIFY_SCOPE } from './config.js';
+
 /** A single connected Gmail account. Persisted in the account store. */
 export interface AccountRecord {
   alias: string;
@@ -11,9 +13,13 @@ export interface AccountRecord {
 export interface AccountSummary {
   alias: string;
   email: string;
-  status: 'connected';
+  status: 'connected' | 'reauthorization_required';
 }
 
 export function toSummary(record: AccountRecord): AccountSummary {
-  return { alias: record.alias, email: record.email, status: 'connected' };
+  return {
+    alias: record.alias,
+    email: record.email,
+    status: record.scopes.includes(GMAIL_MODIFY_SCOPE) ? 'connected' : 'reauthorization_required',
+  };
 }

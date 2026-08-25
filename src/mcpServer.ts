@@ -1,10 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { getAccountStore } from './accountStore.js';
-import { GmailApiError, getMessage, searchMessages } from './gmail.js';
+import { createDraft, GmailApiError, getMessage, searchMessages, sendMessage } from './gmail.js';
 import { isReauthRequiredError } from './googleOAuth.js';
 import { log } from './logger.js';
-import { ALIAS_PATTERN } from './config.js';
+import { ALIAS_PATTERN, loadConfig } from './config.js';
 import { toSummary, type AccountRecord } from './types.js';
 
 const aliasSchema = z.string().regex(ALIAS_PATTERN, 'Account alias must be lowercase letters, digits, "-" or "_".');
@@ -43,6 +43,22 @@ function jsonResult(value: unknown) {
 
 function errorResult(message: string) {
   return { content: [{ type: 'text' as const, text: message }], isError: true as const };
+}
+
+const recipientSchema = z
+  .string()
+  .min(3)
+  .max(2_000)
+  .describe('One or more comma-separated recipient email addresses.');
+const subjectSchema = z.string().max(998).default('').describe('Message subject.');
+const bodySchema = z.string().min(1).max(100_000).describe('Plain-text message body.');
+
+function writeFailure(operation: string, account: AccountRecord, err: unknown) {
+  if (err instanceof GmailApiError && isReauthRequiredError(err)) {
+    return errorResult(reauthMessage(account));
+  }
+  log.error(`tool_${operation}_failed`, { account: account.alias, message: (err as Error).message });
+  return errorResult(`${operation} failed for account "${account.alias}": ${(err as Error).message}`);
 }
 
 export function createMcpServer(): McpServer {
@@ -172,6 +188,77 @@ export function createMcpServer(): McpServer {
       return jsonResult({ results, errors });
     },
   );
+
+  if (loadConfig().enableWriteTools) {
+    server.registerTool(
+      'create_draft',
+      {
+        title: 'Create a Gmail draft',
+        description:
+          'Creates a plain-text draft in exactly the connected Gmail account named by account. The account alias is ' +
+          'required and is never inferred or substituted. This tool does not send or delete anything.',
+        inputSchema: {
+          account: aliasSchema.describe('The alias of the connected Gmail account to receive the draft.'),
+          to: recipientSchema.optional(),
+          cc: recipientSchema.optional(),
+          bcc: recipientSchema.optional(),
+          subject: subjectSchema,
+          body: bodySchema,
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ account, to, cc, bcc, subject, body }) => {
+        const record = await resolveAccount(account);
+        log.info('tool_create_draft', { account });
+        try {
+          const draft = await createDraft(record.refreshToken, { to, cc, bcc, subject, body });
+          return jsonResult({
+            account: record.alias,
+            email: record.email,
+            draft_id: draft.id,
+            message_id: draft.message?.id,
+            thread_id: draft.message?.threadId,
+          });
+        } catch (err) {
+          return writeFailure('create_draft', record, err);
+        }
+      },
+    );
+
+    server.registerTool(
+      'send_email',
+      {
+        title: 'Send a Gmail email',
+        description:
+          'Sends a plain-text email from exactly the connected Gmail account named by account. Gmail uses that ' +
+          'account as the From identity. The account alias is required and is never inferred or substituted.',
+        inputSchema: {
+          account: aliasSchema.describe('The alias of the connected Gmail account to send from.'),
+          to: recipientSchema.describe('One or more comma-separated recipient email addresses.'),
+          cc: recipientSchema.optional(),
+          bcc: recipientSchema.optional(),
+          subject: subjectSchema,
+          body: bodySchema,
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ account, to, cc, bcc, subject, body }) => {
+        const record = await resolveAccount(account);
+        log.info('tool_send_email', { account });
+        try {
+          const sent = await sendMessage(record.refreshToken, { to, cc, bcc, subject, body });
+          return jsonResult({
+            account: record.alias,
+            from: record.email,
+            message_id: sent.id,
+            thread_id: sent.threadId,
+          });
+        } catch (err) {
+          return writeFailure('send_email', record, err);
+        }
+      },
+    );
+  }
 
   return server;
 }

@@ -1,7 +1,7 @@
 {
   "name": "multi-gmail-cowork-mcp",
   "version": "0.1.0",
-  "description": "Self-hosted, multi-account, read-only Gmail MCP server for use as a Claude custom connector",
+  "description": "Self-hosted, multi-account Gmail read, compose, and send MCP server for use as a Claude custom connector",
   "license": "MIT",
   "private": true,
   "type": "module",

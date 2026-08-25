@@ -59,7 +59,7 @@ function Build-EnvArgs([string]$PublicBaseUrl) {
     "ACCOUNTS_SECRET_NAME=gmail-mcp-accounts",
     "MCP_OAUTH_STATE_SECRET_NAME=mcp-oauth-state",
     "TOKEN_STORE=secret-manager",
-    "ENABLE_WRITE_TOOLS=false",
+    "ENABLE_WRITE_TOOLS=true",
     "LOG_LEVEL=info",
     "NODE_ENV=production"
   ) -join ","

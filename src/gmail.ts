@@ -70,6 +70,7 @@ async function gmailFetch<T>(
   client: OAuth2Client,
   path: string,
   params: Record<string, string | number | string[] | undefined>,
+  request: { method?: 'GET' | 'POST'; body?: unknown } = {},
 ): Promise<T> {
   const { token } = await client.getAccessToken();
   if (!token) throw new Error('Failed to obtain a Gmail access token.');
@@ -84,7 +85,10 @@ async function gmailFetch<T>(
     }
   }
 
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  const body = request.body === undefined ? undefined : JSON.stringify(request.body);
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const res = await fetch(url, { method: request.method ?? 'GET', headers, body });
   if (!res.ok) {
     throw new GmailApiError(`Gmail API request to ${path} failed with HTTP ${res.status}`, res.status);
   }
@@ -212,4 +216,86 @@ export async function getMessage(refreshToken: string, messageId: string): Promi
     body: { text: body.text, html: body.html },
     attachments: body.attachments,
   };
+}
+
+export interface ComposeMessageInput {
+  to?: string;
+  cc?: string;
+  bcc?: string;
+  subject?: string;
+  body: string;
+}
+
+export interface GmailWriteResult {
+  id?: string;
+  threadId?: string;
+  labelIds?: string[];
+}
+
+export interface GmailDraftResult {
+  id?: string;
+  message?: GmailWriteResult;
+}
+
+function rejectHeaderInjection(value: string, field: string): void {
+  if (/[\r\n]/.test(value)) throw new Error(`${field} must not contain line breaks.`);
+}
+
+function normalizeRecipients(value: string | undefined, field: string, required: boolean): string | undefined {
+  if (!value) {
+    if (required) throw new Error(`${field} is required.`);
+    return undefined;
+  }
+  rejectHeaderInjection(value, field);
+  const recipients = value
+    .split(',')
+    .map((recipient) => recipient.trim())
+    .filter(Boolean);
+  if (recipients.length === 0 || recipients.some((recipient) => !/^[^@\s,]+@[^@\s,]+\.[^@\s,]+$/.test(recipient))) {
+    throw new Error(`${field} must contain one or more comma-separated email addresses.`);
+  }
+  return recipients.join(', ');
+}
+
+function encodeSubject(subject: string): string {
+  rejectHeaderInjection(subject, 'subject');
+  if (/^[\x20-\x7e]*$/.test(subject)) return subject;
+  return `=?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`;
+}
+
+function buildRawMessage(input: ComposeMessageInput, requireRecipient: boolean): string {
+  if (input.body.length > 100_000) throw new Error('body is too large (maximum 100,000 characters).');
+  const to = normalizeRecipients(input.to, 'to', requireRecipient);
+  const cc = normalizeRecipients(input.cc, 'cc', false);
+  const bcc = normalizeRecipients(input.bcc, 'bcc', false);
+  const subject = encodeSubject(input.subject ?? '');
+  const body = input.body.replace(/\r\n?|\n/g, '\r\n');
+  const headers = [
+    ...(to ? [`To: ${to}`] : []),
+    ...(cc ? [`Cc: ${cc}`] : []),
+    ...(bcc ? [`Bcc: ${bcc}`] : []),
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: 8bit',
+  ];
+  return Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8').toString('base64url');
+}
+
+export async function sendMessage(refreshToken: string, input: ComposeMessageInput): Promise<GmailWriteResult> {
+  return gmailFetch<GmailWriteResult>(
+    clientForRefreshToken(refreshToken),
+    '/messages/send',
+    {},
+    { method: 'POST', body: { raw: buildRawMessage(input, true) } },
+  );
+}
+
+export async function createDraft(refreshToken: string, input: ComposeMessageInput): Promise<GmailDraftResult> {
+  return gmailFetch<GmailDraftResult>(
+    clientForRefreshToken(refreshToken),
+    '/drafts',
+    {},
+    { method: 'POST', body: { message: { raw: buildRawMessage(input, false) } } },
+  );
 }

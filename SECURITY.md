@@ -37,8 +37,8 @@ Google  <->  Your Google Cloud deployment  <->  Claude / Anthropic
    and rotating refresh tokens. Authorization state and registered clients are stored in a
    separate Secret Manager secret owned by the deployment.
 2. **This server to Google, once per connected Gmail account.** Standard OAuth 2.0
-   authorization-code flow with PKCE, `access_type=offline` for a refresh token, scope
-   `gmail.readonly` only. Each account's refresh token is stored independently.
+   authorization-code flow with PKCE, `access_type=offline` for a refresh token, the narrow
+   `gmail.modify` scope. Each account's refresh token is stored independently.
 
 These never touch each other: the OAuth access token Claude sends is never forwarded to
 Google, and no Gmail token is ever returned to Claude or appears in any MCP tool result.
@@ -176,7 +176,7 @@ verbosity setting that exposes Gmail content or credentials.
 
 ## Google OAuth verification status
 
-This app requests `gmail.readonly`, a **restricted** Gmail scope. Full Google verification
+This app requests `gmail.modify`, a **restricted** Gmail scope. Full Google verification
 (including a CASA security assessment) is only required if you complete Google's
 verification process — e.g., to remove the "unverified app" warning or exceed 100 users.
 For a personal or small-team self-hosted deployment, Google's documented exemption applies:

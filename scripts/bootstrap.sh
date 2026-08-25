@@ -115,7 +115,7 @@ existing_public_base_url() {
 deploy_once() {
   local base_url="$1"
   local secret_refs="ADMIN_PASSWORD=admin-password:latest,OAUTH_STATE_SECRET=oauth-state-secret:latest,GOOGLE_CLIENT_ID=google-client-id:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest"
-  local env_vars="PUBLIC_BASE_URL=$base_url,GCP_PROJECT_ID=$project_id,ACCOUNTS_SECRET_NAME=$accounts_secret_name,MCP_OAUTH_STATE_SECRET_NAME=mcp-oauth-state,TOKEN_STORE=secret-manager,ENABLE_WRITE_TOOLS=false,LOG_LEVEL=info,NODE_ENV=production"
+  local env_vars="PUBLIC_BASE_URL=$base_url,GCP_PROJECT_ID=$project_id,ACCOUNTS_SECRET_NAME=$accounts_secret_name,MCP_OAUTH_STATE_SECRET_NAME=mcp-oauth-state,TOKEN_STORE=secret-manager,ENABLE_WRITE_TOOLS=true,LOG_LEVEL=info,NODE_ENV=production"
   gcloud run deploy "$service_name" \
     --source . \
     --project "$project_id" \
@@ -289,7 +289,7 @@ if [[ -z "$client_id_value" || -z "$client_secret_value" || "$client_id_value" =
   oauth_client_needed="true"
   printf '\nONE browser step: create the Google OAuth web client\n'
   printf '1. Open: https://console.cloud.google.com/auth/clients?project=%s\n' "$project_id"
-  printf '   Configure the app as External, add the Gmail read-only scope, and add your own Gmail test users.\n'
+  printf '   Configure the app as External, add the Gmail modify scope, and add your own Gmail test users.\n'
   printf '2. Create an OAuth client (Web application) with this exact callback URI:\n'
   printf '   %s/oauth/google/callback\n' "$service_url"
   printf 'Google does not provide a safe, supported CLI/API shortcut for this OAuth client creation.\n'

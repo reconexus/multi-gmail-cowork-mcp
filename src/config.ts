@@ -63,7 +63,7 @@ export function loadConfig(): Config {
     mcpOAuthStateSecretName: optional('MCP_OAUTH_STATE_SECRET_NAME', 'mcp-oauth-state'),
     tokenStore,
     accountsSecretName: optional('ACCOUNTS_SECRET_NAME', 'gmail-mcp-accounts'),
-    enableWriteTools: optional('ENABLE_WRITE_TOOLS', 'false').toLowerCase() === 'true',
+    enableWriteTools: optional('ENABLE_WRITE_TOOLS', 'true').toLowerCase() === 'true',
     logLevel,
   };
 
@@ -72,4 +72,5 @@ export function loadConfig(): Config {
 
 export const ALIAS_PATTERN = /^[a-z0-9_-]{1,32}$/;
 
-export const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+/** Narrow write-capable Gmail scope: read, compose, send, and mailbox changes; no permanent delete. */
+export const GMAIL_MODIFY_SCOPE = 'https://www.googleapis.com/auth/gmail.modify';
