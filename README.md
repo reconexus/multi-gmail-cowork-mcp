@@ -83,6 +83,17 @@ limitations. This README does not repeat that reasoning.
 - Nothing else is required for a deployment: Google Cloud Shell already includes `gcloud`,
   `curl`, `openssl`, and `jq`.
 
+## Cost and billing
+
+Cloud Run requires a billing-enabled project. This deployment is sized for
+personal/small-business use: **min instances 0** (scales to zero when idle) and
+**max instances 3**. Normal usage — a handful of searches, reads, and sends per
+day — stays well inside Google Cloud's Always Free allowance for Cloud Run, so
+the realistic ongoing cost is $0. That is not a guarantee: a sustained burst of
+requests beyond the free allowance would incur normal Cloud Run charges. The
+bootstrap prints an optional budget-alert link if you want a notification before
+any spend.
+
 ## One-command Cloud Shell setup (recommended)
 
 1. Open this repository in Google Cloud Shell using the button above (or use **Open in Cloud
@@ -139,7 +150,7 @@ there is no static connector header to copy or put in a URL.
 
 ## Connect Claude Cowork
 
-In Claude, open **Customize -> Connectors -> Add custom connector** and enter exactly:
+In Claude, open **Settings → Connectors → Add custom connector** and enter exactly:
 
 1. **Connector name:** `Multi Gmail`
 2. **Remote MCP URL:** the printed URL ending in `/claude-mcp`
@@ -158,6 +169,22 @@ enter the Gmail OAuth client ID or secret in Claude — those belong only to Goo
 
 After the connector is connected, ask Claude to call `list_accounts`, then run an
 alias-specific search for each account and `search_all_accounts` to verify attribution.
+
+## Verify your deployment
+
+`scripts/acceptance_test.mjs` proves every tool works end-to-end against your own
+deployment — account isolation, no-fallback on a bad alias, drafts, and send with
+arrival and correct `From` identity. It performs the full MCP OAuth flow as a real
+remote client and never prints tokens:
+
+```bash
+MCP_BASE_URL=https://your-service.run.app \
+  MCP_ADMIN_PASSWORD='...'   # Secret Manager -> admin-password
+  node scripts/acceptance_test.mjs
+```
+
+The send test sends one email account-A → account-B and one account-B → account-A,
+so the recipient is always an account you own. Set `SKIP_SEND=1` to skip sends.
 
 ## Local development (optional)
 
@@ -199,7 +226,7 @@ tool. Claude connector permissions should allow read tools automatically while k
 - **Tear down the deployment:**
   ```powershell
   gcloud run services delete multi-gmail-mcp --region us-central1
-  gcloud secrets delete mcp-bearer-token mcp-oauth-state admin-password oauth-state-secret google-client-id google-client-secret gmail-mcp-accounts
+  gcloud secrets delete mcp-oauth-state admin-password oauth-state-secret google-client-id google-client-secret gmail-mcp-accounts
   gcloud iam service-accounts delete multi-gmail-mcp-run@YOUR_PROJECT_ID.iam.gserviceaccount.com
   ```
 - **Delete the OAuth client:** Cloud Console -> APIs & Services -> Credentials -> delete
@@ -244,8 +271,9 @@ sources.
 ## Repository layout
 
 ```
-src/            TypeScript source (server, MCP tools, admin UI, OAuth flows)
-scripts/        bootstrap.sh (Cloud Shell), setup.ps1/deploy.ps1 (Windows)
+src/            TypeScript source (server, MCP tools, admin/setup UI, OAuth flows)
+scripts/        bootstrap.sh (Cloud Shell), setup.ps1/deploy.ps1 (Windows),
+                acceptance_test.mjs (verify any deployment end-to-end)
 .env.example    Local-dev configuration template (placeholders only)
 SECURITY.md     Trust model, design rationale, known limitations
 ```

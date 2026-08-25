@@ -65,7 +65,8 @@ connector's access token cannot add or remove which Gmail accounts this server h
 
 ## Why Cloud Run allows unauthenticated invocations
 
-`scripts/deploy.ps1` deploys with `--allow-unauthenticated`. This looks alarming out of
+`scripts/bootstrap.sh` (Cloud Shell) and `scripts/deploy.ps1` (Windows) both deploy
+with `--allow-unauthenticated`. This looks alarming out of
 context, so to be explicit about why: Cloud Run's own IAM layer authenticates callers via
 Google-issued identity tokens. Claude's servers are not a Google Cloud principal and
 cannot present one, so IAM-level auth is not available for this use case regardless of
