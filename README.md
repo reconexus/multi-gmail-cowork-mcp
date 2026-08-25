@@ -1,10 +1,6 @@
 # multi-gmail-cowork-mcp
 
-[![Open in Google Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://console.cloud.google.com/cloudshell/open?git_repo=https://github.com/YOUR-GITHUB-OWNER/multi-gmail-cowork-mcp&shellonly=true)
-
-> **Before publishing:** replace `YOUR-GITHUB-OWNER` above with your GitHub username or org
-> so the button opens *your* repo in Cloud Shell. Until then, clone your fork inside Cloud
-> Shell manually and run the bootstrap from there.
+[![Open in Google Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://console.cloud.google.com/cloudshell/open?git_repo=https://github.com/reconexus/multi-gmail-cowork-mcp&shellonly=true)
 
 A small, self-hosted [MCP](https://modelcontextprotocol.io) server that lets **one Claude
 custom connector** search, read, compose, and send through **multiple, independently-authenticated Gmail accounts**.
