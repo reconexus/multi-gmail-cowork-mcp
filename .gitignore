@@ -22,6 +22,10 @@ service-account*.json
 client_secret*.json
 *.pem
 
+# Local deployment checkpoint — records one developer's live deployment
+# (project ID, URLs, connected addresses) and must never be published.
+CURRENT_STATE.md
+
 # Logs
 *.log
 npm-debug.log*
