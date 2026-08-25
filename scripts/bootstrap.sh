@@ -154,13 +154,26 @@ need_command curl
 need_command openssl
 
 if [[ "${1:-}" == "--check" ]]; then
-  gcloud auth list --filter=status:ACTIVE --format='value(account)' | head -n 1 >/dev/null || fail "No active gcloud login. Run: gcloud auth login"
-  active_project="$(gcloud config get-value project 2>/dev/null || true)"
-  if [[ -z "$project_id" && ( -z "$active_project" || "$active_project" == "(unset)" ) ]]; then
-    printf 'PASS  Cloud Shell tools are available; no active project is selected yet.\n'
+  need_command gcloud
+  need_command curl
+  need_command openssl
+  acct="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n 1)"
+  if [[ -z "$acct" ]]; then fail "No active gcloud login. Run: gcloud auth login"; fi
+  pass "gcloud authenticated as ${acct}"
+  active_project="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
+  if [[ -z "$active_project" || "$active_project" == "(unset)" ]]; then
+    printf 'PASS  Cloud Shell prerequisites OK; no project selected yet (bootstrap will prompt for one).\n'
   else
-    printf 'PASS  Cloud Shell tools and an active project are available.\n'
+    pass "Active project: ${active_project}"
+    billing="$(gcloud beta billing projects describe "$active_project" --format='value(billingAccountName)' 2>/dev/null || true)"
+    if [[ -n "$billing" ]]; then pass "Billing linked (${billing##*/})"; else printf 'WARN  Billing not linked to %s\n' "$active_project"; fi
+    if gcloud run services describe "$service_name" --project "$active_project" --region "$region_name" >/dev/null 2>&1; then
+      pass "Existing Cloud Run service '$service_name' detected (will be updated, not recreated)"
+    else
+      printf 'INFO  No existing Cloud Run service (bootstrap will create one)\n'
+    fi
   fi
+  printf '\n--check is read-only: it changes nothing. Run ./scripts/bootstrap.sh to provision/deploy.\n'
   exit 0
 fi
 
@@ -289,8 +302,15 @@ if [[ -z "$client_id_value" || -z "$client_secret_value" || "$client_id_value" =
   oauth_client_needed="true"
   printf '\nONE browser step: create the Google OAuth web client\n'
   printf '1. Open: https://console.cloud.google.com/auth/clients?project=%s\n' "$project_id"
-  printf '   Configure the app as External, add the Gmail modify scope, and add your own Gmail test users.\n'
-  printf '2. Create an OAuth client (Web application) with this exact callback URI:\n'
+  printf '   OAuth consent screen:\n'
+  printf '     - User type: External; fill in app name + support email.\n'
+  printf '     - Add scope: https://www.googleapis.com/auth/gmail.modify\n'
+  printf '     - Add your own Gmail addresses as test users.\n'
+  printf '     - Click "Publish app" to move to In production. It stays unverified (a one-time\n'
+  printf '       "Google has not verified this app" click-through per account is expected and fine).\n'
+  printf '       Do NOT leave it in Testing: Google expires refresh tokens after 7 days for apps\n'
+  printf '       left in Testing, which would silently break the connector every week.\n'
+  printf '2. Create an OAuth client (Web application) with this exact authorized redirect URI:\n'
   printf '   %s/oauth/google/callback\n' "$service_url"
   printf 'Google does not provide a safe, supported CLI/API shortcut for this OAuth client creation.\n'
   printf 'Paste the resulting Client ID (it will remain hidden from normal output): '
@@ -326,6 +346,9 @@ printf '\nFinal setup summary\n'
 printf 'Admin URL:          %s/admin\n' "$service_url"
 printf 'OAuth callback URL: %s/oauth/google/callback\n' "$service_url"
 printf 'MCP URL:            %s/claude-mcp\n' "$service_url"
+if [[ -n "$billing_account" ]]; then
+  printf 'Budget alert (opt): https://console.cloud.google.com/billing/%s/budgets\n' "${billing_account##*/}"
+fi
 printf 'Next human action:  '
 if [[ "$oauth_client_needed" == "true" ]]; then
   printf 'complete the OAuth client step above, then rerun ./scripts/bootstrap.sh.\n'
