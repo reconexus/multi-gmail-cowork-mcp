@@ -258,13 +258,15 @@ function resolveAdminPassword() {
   if (file) return readFileSync(file, 'utf8').replace(/\r?\n+$/, '');
   if (argFlag('gcloud')) {
     const project = process.env.GCP_PROJECT_ID || '';
-    const projArg = project ? `--project=${project}` : '';
+    const args = ['secrets', 'versions', 'access', 'latest', '--secret=admin-password'];
+    if (project) args.push('--project', project);
+    // On Windows, gcloud is gcloud.cmd and Node cannot exec .cmd without a shell.
+    // shell:true lets cmd.exe resolve it via PATHEXT; on Linux (Cloud Shell) we exec directly.
     try {
-      return execFileSync(
-        'gcloud',
-        ['secrets', 'versions', 'access', 'latest', '--secret=admin-password', projArg].filter(Boolean),
-        { encoding: 'utf8' },
-      ).replace(/\r?\n+$/, '');
+      return execFileSync('gcloud', args, {
+        encoding: 'utf8',
+        shell: process.platform === 'win32',
+      }).replace(/\r?\n+$/, '');
     } catch (e) {
       throw new Error(`--gcloud failed to read admin-password: ${e.message}`);
     }
